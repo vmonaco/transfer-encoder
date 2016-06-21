@@ -40,6 +40,9 @@ def maybe_download(source_url, filename, destdir):
 
 
 def load_cmu():
+    """
+    Load the CMU benchmark keystroke dataset as a dataframe with index: subject, repetition
+    """
     fname = maybe_download(CMU_URL, CMU_FNAME, DATA_DIR)
     df = pd.read_csv(fname, index_col=[0, 1, 2])
     repetition = (df.index.get_level_values(1) - 1) * 50 + df.index.get_level_values(2)
@@ -49,11 +52,14 @@ def load_cmu():
     return df
 
 
-def load_biosig(i, h=2):
+def load_biosig(i, hands=2):
+    """
+    Load the Biosig keystroke dataset (given the number of typing hands) as a dataframe with index: subject, repetition
+    """
     fname = maybe_download(BIOSIG_URL, BIOSIG_FNAME, DATA_DIR)
     df = pd.read_excel(fname, sheetname=i)
 
-    df = df[df['Class'] == h]
+    df = df[df['Class'] == hands]
 
     df['repetition'] = 0
     df['subject'] = df['User_ID']

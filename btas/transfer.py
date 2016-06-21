@@ -10,7 +10,12 @@ class TransferEncoder(object):
         self.n_hidden = n_hidden
         self.n_steps = n_steps
 
-    def fit(self, X, Z, batch_size=1000000):
+    def fit(self, X, Z, batch_size=np.inf):
+        """
+        X is the list of samples in the source domain and Z is the list of samples in the target domain. X and Z should
+         have equal length. Model parameters are determined using gradient descent optimization with n_steps as
+         specified in the constructor.
+        """
         input_dim = X[0].shape[0]
 
         x = tf.placeholder('float', [None, input_dim])
@@ -18,8 +23,9 @@ class TransferEncoder(object):
         weights = tf.placeholder('float', [None])
 
         # Initialize W using random values in interval [-1/sqrt(n) , 1/sqrt(n)]
-        W = tf.Variable(tf.random_uniform([input_dim, self.n_hidden], -1.0 / np.sqrt(input_dim), 1.0 / np.sqrt(input_dim),
-                                          seed=np.random.randint(0, 1e9)))
+        W = tf.Variable(
+            tf.random_uniform([input_dim, self.n_hidden], -1.0 / np.sqrt(input_dim), 1.0 / np.sqrt(input_dim),
+                              seed=np.random.randint(0, 1e9)))
 
         # Initialize b to zero
         b1 = tf.Variable(tf.zeros([self.n_hidden]))
@@ -62,8 +68,8 @@ class TransferEncoder(object):
                 })
                 avg_cost += c / n_samples * batch_size
 
-            # if epoch % 100 == 0:
-            #     print('Epoch', epoch, 'cost ', avg_cost)
+                # if epoch % 100 == 0:
+                #     print('Epoch', epoch, 'cost ', avg_cost)
 
         self.x = x
         self.z_hat = z_hat
@@ -71,6 +77,9 @@ class TransferEncoder(object):
         return
 
     def transfer(self, X):
+        """
+        Reconstruct X in the target domain.
+        """
         if X.ndim == 1:
             X = X[np.newaxis, :]
         return self.sess.run(self.z_hat, feed_dict={self.x: X})

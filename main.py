@@ -1,7 +1,6 @@
-    import os
 import numpy as np
 import pandas as pd
-from itertools import cycle, product
+from itertools import product
 from sklearn.metrics import roc_curve
 import matplotlib as mpl
 
@@ -9,7 +8,7 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from btas.classify import split_dataset, Classifier, Manhattan, ScaledManhattan, verification_scores, eer_from_scores
+from btas.classify import split_dataset, Classifier, Manhattan, verification_scores, eer_from_scores
 from btas.util import load_cmu, load_biosig, save_results, save_fig, load_results
 from btas.transfer import TransferEncoder
 
@@ -86,77 +85,10 @@ def normalize(df):
     return (df - lower) / (upper - lower)
 
 
-def cmu_features_vs_repetitions(n_users=2, window=100, seed=SEED):
-    np.random.seed(seed)
-    df = load_cmu()  # Not normalized
-
-    users = np.random.choice(df.index.levels[0].unique(), n_users)
-
-    linestyles = ['-', '--', '-.', ':']
-
-    # First two hold and DD latencies
-    features = ['H.period', 'DD.period.t', 'H.t', 'DD.t.i']
-
-    df = df[features]
-
-    fig, ax = plt.subplots(n_users, 2, figsize=(4, 4), sharex=True, sharey=True)
-    for user_i, user in enumerate(users):
-        df_user = df.loc[user]
-        for style, feature in zip(cycle(linestyles), features):
-            ax[user_i, 0].plot(np.r_[df_user[:window][feature].expanding().mean(),
-                                     df_user[feature].rolling(window=window).mean().dropna().values],
-                               label=feature, linestyle=style, linewidth=1)
-            ax[user_i, 1].plot(np.r_[df_user[:window][feature].expanding().std(),
-                                     df_user[feature].rolling(window=window).std().dropna().values],
-                               label=feature, linestyle=style, linewidth=1)
-
-            ax[user_i, 1].set_xticks(np.linspace(0, 400, 5))
-
-    ax[0, 0].set_title('Rolling mean')
-    ax[0, 1].set_title('Rolling SD')
-
-    ax[0, 1].legend()
-    fig.tight_layout()
-
-    fig.text(0.5, 0.0, 'Repetition', ha='center')
-    # fig.text(0.0, 0.5, 'Feature', va='center', rotation='vertical')
-    fig.text(0.0, 0.25, 'User B', va='center', rotation='vertical')
-    fig.text(0.0, 0.75, 'User A', va='center', rotation='vertical')
-
-    # plt.show()
-    save_fig('features_vs_repetitions')
-    return
-
-
-def cmu_motivation_results(cl_factory, seed=SEED):
-    np.random.seed(seed)
-    df = load_cmu()  # Not normalized
-
-    results = []
-    for template_reps, genuine_reps, impostor_reps in CMU_MOTIVATION_SCENARIOS:
-        df_template, df_genuine, df_impostor = split_dataset(df,
-                                                             template_reps=template_reps,
-                                                             genuine_reps=genuine_reps,
-                                                             impostor_reps=impostor_reps)
-        cl = cl_factory()
-        classifier_scores, classifier_summary = verification_scores(cl, df_template, df_genuine, df_impostor)
-        eer = '%.3f (%.3f)' % (classifier_summary['mean'], classifier_summary['std'])
-
-        row = (
-            '[%d:%d]' % (template_reps[0], template_reps[-1]),
-            '[%d:%d]' % (genuine_reps[0], genuine_reps[-1]),
-            '[%d:%d]' % (impostor_reps[0], impostor_reps[-1]),
-            eer
-        )
-        results.append(row)
-
-    results = pd.DataFrame(results, columns=['Template', 'Genuine', 'Impostor', 'EER'])
-    save_results(results, 'cmu_motivation')
-    print(results)
-    return
-
-
 def fit_te(te, df_source, df_target, one_to_one, shuffle_users):
+    """
+    Fit the ITE using the given source and target domain dataframes and bipartite strategy
+    """
     inputs, outputs = [], []
     if shuffle_users:
         u1 = df_source.index.get_level_values(0).unique()
@@ -186,11 +118,45 @@ def fit_te(te, df_source, df_target, one_to_one, shuffle_users):
     return te
 
 
+def cmu_motivation_results(cl_factory, seed=SEED):
+    """
+    Determine the verification performance for each of the CMU cross-domain scenarios without using the ITE
+    """
+    np.random.seed(seed)
+    df = load_cmu()  # Not normalized
+
+    results = []
+    for template_reps, genuine_reps, impostor_reps in CMU_MOTIVATION_SCENARIOS:
+        df_template, df_genuine, df_impostor = split_dataset(df,
+                                                             template_reps=template_reps,
+                                                             genuine_reps=genuine_reps,
+                                                             impostor_reps=impostor_reps)
+        cl = cl_factory()
+        classifier_scores, classifier_summary = verification_scores(cl, df_template, df_genuine, df_impostor)
+        eer = '%.3f (%.3f)' % (classifier_summary['mean'], classifier_summary['std'])
+
+        row = (
+            '[%d:%d]' % (template_reps[0], template_reps[-1]),
+            '[%d:%d]' % (genuine_reps[0], genuine_reps[-1]),
+            '[%d:%d]' % (impostor_reps[0], impostor_reps[-1]),
+            eer
+        )
+        results.append(row)
+
+    results = pd.DataFrame(results, columns=['Template', 'Genuine', 'Impostor', 'EER'])
+    save_results(results, 'cmu_motivation')
+    print(results)
+    return
+
+
 def cmu_results(name, te_factory, cl_factory,
                 one_to_one=True,
                 shuffle_users=False,
                 n_transfer_users=N_CMU_TRANSFER_USERS,
                 n_validations=N_VALIDATIONS, seed=SEED):
+    """
+    Determine the main CMU results by applying the ITE to each of the cross-domain scenarios.
+    """
     np.random.seed(seed)
     df = load_cmu()
     df = normalize(df)
@@ -296,6 +262,9 @@ def cmu_results(name, te_factory, cl_factory,
 
 
 def biosig_motivation_results(cl_factory, seed=SEED):
+    """
+    Determine the verification performance for each of the Biosig cross-domain scenarios without using the ITE
+    """
     np.random.seed(seed)
 
     score_dfs = []
@@ -350,6 +319,9 @@ def biosig_motivation_results(cl_factory, seed=SEED):
 
 def biosig_split_data(h1, h2, template_hands, genuine_hands, impostor_hands, template_reps, genuine_reps,
                       impostor_reps):
+    """
+    Split the Biosig dataset into template, genuine, and impostor dataframes
+    """
     df_template_1, df_genuine_1, df_impostor_1 = split_dataset(h1, template_reps, genuine_reps, impostor_reps)
     df_template_2, df_genuine_2, df_impostor_2 = split_dataset(h2, template_reps, genuine_reps, impostor_reps)
 
@@ -376,6 +348,9 @@ def biosig_results(name, te_factory, cl_factory,
                    shuffle_users=False,
                    n_transfer_users=N_BIOSIG_TRANSFER_USERS,
                    n_validations=N_VALIDATIONS, seed=SEED):
+    """
+    Determine the main Biosig results by applying the ITE to each of the cross-domain scenarios.
+    """
     np.random.seed(seed)
 
     score_dfs = []
@@ -487,6 +462,9 @@ def biosig_results(name, te_factory, cl_factory,
 
 
 def cmu_user_score_figure(scenario=3, user='s003'):
+    """
+    Plot the CMU user score distributions for a given cross-domain scenario
+    """
     df1 = load_results('cmu_scores_no_transfer', index_col=[0, 1, 2, 3])
     df2 = load_results('cmu_scores_transfer_N-N', index_col=[0, 1, 2, 3])
 
@@ -514,14 +492,20 @@ def cmu_user_score_figure(scenario=3, user='s003'):
     return
 
 
-def interp_roc(s, far_interp=np.linspace(0, 1, 101)):
-    far, tpr, thresholds = roc_curve(s['genuine'], s['score'], drop_intermediate=True)
+def interp_roc(scores, far_interp=np.linspace(0, 1, 101)):
+    """
+    Derive the ROC curve from a scores dataframe for a fixed set of FAR points.
+    """
+    far, tpr, thresholds = roc_curve(scores['genuine'], scores['score'], drop_intermediate=True)
     frr = (1 - tpr)
     df = pd.DataFrame({'FAR': far_interp, 'FRR': np.interp(far_interp, far, frr)})
     return df
 
-def roc_figure(names, labels, scenario, output=None):
 
+def roc_figure(names, labels, scenario, output=None):
+    """
+    Plot the ROC curves for a given scenario across several score files (bipartite strategies)
+    """
     rocs = []
     for name, label in zip(names, labels):
         scores = load_results(name).set_index(['scenario', 'fold', 'subject']).loc[scenario, :, :]
@@ -549,171 +533,89 @@ def roc_figure(names, labels, scenario, output=None):
 
     return
 
-def roc_2column_figure(datasets, names, labels, scenario, output=None):
-
-    fig, axes = plt.subplots(1, 2, figsize=(5.4,2.5), sharey=True, sharex=True)
-
-    for i, dataset in enumerate(datasets):
-        ax = axes[i]
-
-        if i == 0:
-            rocs = []
-            for name, label in zip(names, labels):
-                scores = load_results(dataset + '_' + name).set_index(['scenario', 'fold', 'subject']).loc[scenario, :, :]
-
-                roc = scores.groupby(level=[0, 1]).apply(interp_roc)
-                roc['Strategy'] = label
-                roc['fold_subject'] = roc.index.get_level_values(0).astype(str).values + '_' + roc.index.get_level_values(
-                    1).astype(str).values
-                rocs.append(roc)
-
-            roc = pd.concat(rocs)
-        else:
-            rocs = []
-            for name, label in zip(names, labels):
-                scores = load_results(dataset + '_' + name).set_index(['scenario', 'fold', 'subject','password']).loc[scenario, :,
-                         :,:]
-
-                roc = scores.groupby(level=[0, 1, 2]).apply(interp_roc)
-                roc['Strategy'] = label
-                roc['fold_subject'] = roc.index.get_level_values(0).astype(
-                    str).values + '_' + roc.index.get_level_values(
-                    1).astype(str).values + '_' + roc.index.get_level_values(
-                    2).astype(str).values
-                rocs.append(roc)
-
-            roc = pd.concat(rocs)
-
-        if i == 1:
-            legend = True
-        else:
-            legend = False
-
-        sns.tsplot(roc, time='FAR', value='FRR', condition='Strategy', unit='fold_subject', linewidth=1.0, ax=ax, legend=legend, ci=95)
-
-        ax.lines[0].set_linestyle('--')
-
-        if i == 0:
-            ax.set_ylabel('False rejection rate')
-            ax.text(0.5, 0.95, 'Low -> high',
-                       horizontalalignment='center',
-                       verticalalignment='top',
-                       transform=ax.transAxes)
-        else:
-            ax.set_ylabel('')
-            plt.legend(title='Bipartite strategy', loc='upper right')
-            ax.text(0.5, 0.95, 'One -> both',
-                    horizontalalignment='center',
-                    verticalalignment='top',
-                    transform=ax.transAxes)
-
-            ax.legend(loc='lower right', bbox_to_anchor=(1.0, 1.0),
-                      fancybox=True, shadow=True, ncol=5)
-
-        ax.set_xlabel('False acceptance rate')
-        # plt.ylabel('False rejection rate')
-
-    plt.tight_layout()
-
-    if output:
-        save_fig(output)
-    else:
-        plt.show()
-
-    return
 
 if __name__ == '__main__':
     np.set_printoptions(precision=4, suppress=True)
-    # cmu_motivation_results(cl_factory=CL_FACTORY)
-    # biosig_motivation_results(cl_factory=CL_FACTORY)
-    #
-    # cmu_results('no_transfer',
-    #             te_factory=NONE_TE_FACTORY,
-    #             cl_factory=CL_FACTORY)
-    # cmu_results('transfer_1-1',
-    #             one_to_one=True,
-    #             shuffle_users=False,
-    #             te_factory=CMU_TE_FACTORY,
-    #             cl_factory=CL_FACTORY)
-    # cmu_results('transfer_N-N',
-    #             one_to_one=False,
-    #             shuffle_users=False,
-    #             te_factory=CMU_TE_FACTORY,
-    #             cl_factory=CL_FACTORY)
-    # cmu_results('transfer_shuffled_1-1',
-    #             one_to_one=True,
-    #             shuffle_users=True,
-    #             te_factory=CMU_TE_FACTORY,
-    #             cl_factory=CL_FACTORY)
-    # cmu_results('transfer_shuffled_N-N',
-    #             one_to_one=False,
-    #             shuffle_users=True,
-    #             te_factory=CMU_TE_FACTORY,
-    #             cl_factory=CL_FACTORY)
-    #
-    # biosig_results('no_transfer',
-    #                te_factory=NONE_TE_FACTORY,
-    #                cl_factory=CL_FACTORY)
-    # biosig_results('transfer_1-1',
-    #                one_to_one=True,
-    #                shuffle_users=False,
-    #                te_factory=BIOSIG_TE_FACTORY,
-    #                cl_factory=CL_FACTORY)
-    # biosig_results('transfer_N-N',
-    #                one_to_one=False,
-    #                shuffle_users=False,
-    #                te_factory=BIOSIG_TE_FACTORY,
-    #                cl_factory=CL_FACTORY)
-    # biosig_results('transfer_shuffled_1-1',
-    #                one_to_one=True,
-    #                shuffle_users=True,
-    #                te_factory=BIOSIG_TE_FACTORY,
-    #                cl_factory=CL_FACTORY)
-    # biosig_results('transfer_shuffled_N-N',
-    #                one_to_one=False,
-    #                shuffle_users=True,
-    #                te_factory=BIOSIG_TE_FACTORY,
-    #                cl_factory=CL_FACTORY)
-    #
-    # cmu_user_score_figure()
-    # cmu_features_vs_repetitions()
-    #
-    # roc_figure(['cmu_scores_no_transfer',
-    #                 'cmu_scores_transfer_1-1',
-    #                 'cmu_scores_transfer_N-N',
-    #                 'cmu_scores_transfer_shuffled_1-1',
-    #                 'cmu_scores_transfer_shuffled_N-N'],
-    #                ['None',
-    #                 '1:1',
-    #                 'N:N',
-    #                 '1x1',
-    #                 'NxN'],
-    #                scenario=2,
-    #                output='cmu_roc')
-    #
-    # roc_figure(['biosig_scores_no_transfer',
-    #                    'biosig_scores_transfer_1-1',
-    #                    'biosig_scores_transfer_N-N',
-    #                    'biosig_scores_transfer_shuffled_1-1',
-    #                    'biosig_scores_transfer_shuffled_N-N'],
-    #                   ['None',
-    #                    '1:1',
-    #                    'N:N',
-    #                    '1x1',
-    #                    'NxN'],
-    #                   scenario=2,
-    #                   output='biosig_roc')
 
-    roc_2column_figure(['cmu', 'biosig'],
-                       ['scores_no_transfer',
-                        'scores_transfer_1-1',
-                        'scores_transfer_N-N',
-                        'scores_transfer_shuffled_1-1',
-                        'scores_transfer_shuffled_N-N'],
-                       ['None',
-                        '1:1',
-                        'N:N',
-                        '1x1',
-                        'NxN'],
-                       scenario=2,
-                       output='scenario_c_roc')
+    # Motivational results
+    cmu_motivation_results(cl_factory=CL_FACTORY)
+    biosig_motivation_results(cl_factory=CL_FACTORY)
+
+    # Main CMU results
+    cmu_results('no_transfer',
+                te_factory=NONE_TE_FACTORY,
+                cl_factory=CL_FACTORY)
+    cmu_results('transfer_1-1',
+                one_to_one=True,
+                shuffle_users=False,
+                te_factory=CMU_TE_FACTORY,
+                cl_factory=CL_FACTORY)
+    cmu_results('transfer_N-N',
+                one_to_one=False,
+                shuffle_users=False,
+                te_factory=CMU_TE_FACTORY,
+                cl_factory=CL_FACTORY)
+    cmu_results('transfer_shuffled_1-1',
+                one_to_one=True,
+                shuffle_users=True,
+                te_factory=CMU_TE_FACTORY,
+                cl_factory=CL_FACTORY)
+    cmu_results('transfer_shuffled_N-N',
+                one_to_one=False,
+                shuffle_users=True,
+                te_factory=CMU_TE_FACTORY,
+                cl_factory=CL_FACTORY)
+
+    # Main biosig results
+    biosig_results('no_transfer',
+                   te_factory=NONE_TE_FACTORY,
+                   cl_factory=CL_FACTORY)
+    biosig_results('transfer_1-1',
+                   one_to_one=True,
+                   shuffle_users=False,
+                   te_factory=BIOSIG_TE_FACTORY,
+                   cl_factory=CL_FACTORY)
+    biosig_results('transfer_N-N',
+                   one_to_one=False,
+                   shuffle_users=False,
+                   te_factory=BIOSIG_TE_FACTORY,
+                   cl_factory=CL_FACTORY)
+    biosig_results('transfer_shuffled_1-1',
+                   one_to_one=True,
+                   shuffle_users=True,
+                   te_factory=BIOSIG_TE_FACTORY,
+                   cl_factory=CL_FACTORY)
+    biosig_results('transfer_shuffled_N-N',
+                   one_to_one=False,
+                   shuffle_users=True,
+                   te_factory=BIOSIG_TE_FACTORY,
+                   cl_factory=CL_FACTORY)
+
+    # Generate figures
+    cmu_user_score_figure()
+
+    roc_figure(['cmu_scores_no_transfer',
+                'cmu_scores_transfer_1-1',
+                'cmu_scores_transfer_N-N',
+                'cmu_scores_transfer_shuffled_1-1',
+                'cmu_scores_transfer_shuffled_N-N'],
+               ['None',
+                '1:1',
+                'N:N',
+                '1x1',
+                'NxN'],
+               scenario=2,
+               output='cmu_roc')
+
+    roc_figure(['biosig_scores_no_transfer',
+                'biosig_scores_transfer_1-1',
+                'biosig_scores_transfer_N-N',
+                'biosig_scores_transfer_shuffled_1-1',
+                'biosig_scores_transfer_shuffled_N-N'],
+               ['None',
+                '1:1',
+                'N:N',
+                '1x1',
+                'NxN'],
+               scenario=2,
+               output='biosig_roc')

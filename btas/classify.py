@@ -1,10 +1,12 @@
 import numpy as np
 import pandas as pd
-from pohmm import Pohmm
 from sklearn.metrics import roc_curve
 
 
 def eer_from_scores(scores):
+    """
+    Compute the EER from a dataframe with genuine and score columns
+    """
     far, tpr, thresholds = roc_curve(scores['genuine'], scores['score'], drop_intermediate=False)
     frr = (1 - tpr)
     idx = np.argmin(np.abs(far - frr))
@@ -12,7 +14,7 @@ def eer_from_scores(scores):
     return np.mean([far[idx], frr[idx]])
 
 
-def stratified_kfold(df, n_train_samples, n_folds, random=False):
+def stratified_kfold(df, n_train_samples, n_folds):
     """
     Create stratified k-folds from an indexed dataframe
     """
@@ -30,6 +32,10 @@ def stratified_kfold(df, n_train_samples, n_folds, random=False):
 
 
 def split_dataset(df, template_reps, genuine_reps, impostor_reps):
+    """
+    Split the dataframe df into template, genuine, and impostor dataframes, given the sample repetitions that should be
+     in each set.
+    """
     df_template = df.groupby(level=0).apply(lambda x: x[x.index.get_level_values(1).isin(template_reps)])
     df_genuine = df.groupby(level=0).apply(lambda x: x[x.index.get_level_values(1).isin(genuine_reps)])
     impostors = df.groupby(level=0).apply(lambda x: x[x.index.get_level_values(1).isin(impostor_reps)]).reset_index(
@@ -49,7 +55,15 @@ def split_dataset(df, template_reps, genuine_reps, impostor_reps):
 
 
 class Classifier(object):
+    """
+    A generic fixed-text anomaly detection classifier with sklearn-like interface.
+    """
+
     def __init__(self, model_factory):
+        """
+        model_factory should be a function that creates a new untrained model. The resulting model object should have
+        fit and score methods.
+        """
         self.model_factory = model_factory
         self.models = {}
         return
@@ -80,50 +94,25 @@ class Classifier(object):
         return scores
 
 
-class ScaledManhattan(object):
-    def fit(self, X):
-        self.X = X
-        self.mean = X.mean(axis=0)
-        self.absdev = np.abs(X - self.mean).mean(axis=0)
-        return
-
-    def score(self, X):
-        return - (np.abs(X - self.mean) / self.absdev).sum(axis=1).squeeze()
-
-
 class Manhattan(object):
+    """
+    Manhattan distance anomaly detector. Computes the Manhattan distance to the mean template vector.
+    """
+
     def fit(self, X):
         self.mean = X.mean(axis=0)
         return
 
     def score(self, X):
-        return - (np.abs(X - self.mean)).sum(axis=1).squeeze()/len(self.mean)
-
-
-class POHMM(object):
-    def __init__(self):
-        self.pohmm = Pohmm(n_hidden_states=2,
-                           init_spread=2,
-                           emissions=['lognormal', 'lognormal'],
-                           smoothing='freq',
-                           init_method='obs',
-                           thresh=1e-2)
-
-    def fit(self, X):
-        X = np.c_[np.median(X[:, 1::2], axis=1), X].reshape(-1, 17, 2)
-        pstates = np.repeat([np.arange(17)], len(X), axis=0)
-        return self.pohmm.fit(X, pstates)
-
-    def score(self, X):
-        X = np.c_[np.median(X[:, 1::2], axis=1), X].reshape(-1, 17, 2)
-        pstates = np.repeat([np.arange(17)], len(X), axis=0)
-        scores = np.zeros(len(X))
-        for i, (Xi, pstates_i) in enumerate(zip(X, pstates)):
-            scores[i] = self.pohmm.score(Xi, pstates_i)
-        return scores
+        return - (np.abs(X - self.mean)).sum(axis=1).squeeze() / len(self.mean)
 
 
 def verification_scores(cl, df_template, df_genuine, df_impostor, normalize_scores=False):
+    """
+    Given a classifier, template, and genuine/impostor query samples, determine the verification scores of the
+    query samples. Optionally normalize the scores per user.
+    """
+
     def extract_labels_samples(df):
         return df.index.get_level_values(0).values, df.values
 
