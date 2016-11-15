@@ -3,7 +3,7 @@
 The induction transfer encoder (ITE) is an inductive transfer learning model that learns a general transformation that can be applied to transfer samples from a source domain to target domain. The ITE is essentially an autoencoder that takes as input a sample in the source domain and attempts to reconstruct the sample in the target domain:
 
 <div align="center">
-  <img src="figures/transfer_encoder.png"><br><br>
+  <img src="figures/transfer_encoder.png">
 </div>
 
 This repository contains the source code to reproduce the results in:
